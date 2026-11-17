@@ -9,8 +9,10 @@ not connect to real traffic lights or sensors.
 
 - **A** or the panel button: switch between adaptive and manual control.
 - **Space**: pause or resume the simulation.
+- **R** or the panel button: reset traffic, session time, and cleared-vehicle count.
 - In manual mode, press **1** for north/south green or **2** for east/west green.
 - Use the **Less** and **More** buttons to adjust simulated traffic density.
+- The panel reports live queues, vehicles on the road, session time, and vehicles cleared.
 
 ## Build
 

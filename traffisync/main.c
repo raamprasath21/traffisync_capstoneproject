@@ -89,6 +89,24 @@ static void SpawnVehicle(Vehicle vehicles[], Direction direction)
     }
 }
 
+static void ResetSimulation(Vehicle vehicles[], float spawnTimers[],
+                            float *elapsedTime, int *completedVehicles,
+                            int *phase, float *phaseTimer)
+{
+    for (int i = 0; i < MAX_VEHICLES; i++) {
+        vehicles[i].active = false;
+    }
+
+    spawnTimers[DIR_NORTH] = 0.5f;
+    spawnTimers[DIR_SOUTH] = 1.2f;
+    spawnTimers[DIR_EAST] = 0.8f;
+    spawnTimers[DIR_WEST] = 1.6f;
+    *elapsedTime = 0.0f;
+    *completedVehicles = 0;
+    *phase = 0;
+    *phaseTimer = 0.0f;
+}
+
 static float GetPathCoordinate(Direction direction, float progress)
 {
     float middle = ROAD_AREA_WIDTH / 2.0f;
@@ -116,8 +134,9 @@ static Vector2 GetVehiclePosition(const Vehicle *vehicle)
     }
 }
 
-static void UpdateVehicles(Vehicle vehicles[], float deltaTime, int phase)
+static int UpdateVehicles(Vehicle vehicles[], float deltaTime, int phase)
 {
+    int completedVehicles = 0;
     for (int i = 0; i < MAX_VEHICLES; i++) {
         Vehicle *vehicle = &vehicles[i];
         if (!vehicle->active) continue;
@@ -145,8 +164,11 @@ static void UpdateVehicles(Vehicle vehicles[], float deltaTime, int phase)
         float pathLength = IsVertical(vehicle->direction) ? SCREEN_HEIGHT : ROAD_AREA_WIDTH;
         if (vehicle->progress > pathLength + CAR_LENGTH) {
             vehicle->active = false;
+            completedVehicles++;
         }
     }
+
+    return completedVehicles;
 }
 
 static void DrawRoad(void)
@@ -241,7 +263,8 @@ static bool DrawButton(Rectangle bounds, const char *label, bool active)
 }
 
 static void DrawPanel(const Vehicle vehicles[], bool autoMode, bool paused,
-                      int phase, float phaseTimer, int density)
+                      int phase, float phaseTimer, int density,
+                      float elapsedTime, int completedVehicles)
 {
     int verticalQueue = CountQueue(vehicles, DIR_NORTH, DIR_SOUTH);
     int horizontalQueue = CountQueue(vehicles, DIR_EAST, DIR_WEST);
@@ -270,24 +293,34 @@ static void DrawPanel(const Vehicle vehicles[], bool autoMode, bool paused,
     DrawText(TextFormat("North / South     %02i", verticalQueue), 970, 268, 18, textColor);
     DrawText(TextFormat("East / West        %02i", horizontalQueue), 970, 296, 18, textColor);
     DrawText(TextFormat("Vehicles on road   %02i", total), 970, 324, 18, textColor);
+    int elapsedSeconds = (int)elapsedTime;
+    DrawText(TextFormat("Session time       %02i:%02i",
+                        elapsedSeconds / 60, elapsedSeconds % 60),
+             970, 352, 18, textColor);
+    DrawText(TextFormat("Vehicles cleared   %02i", completedVehicles),
+             970, 380, 18, textColor);
 
     DrawText(autoMode ? "ADAPTIVE CONTROL" : "MANUAL CONTROL",
-             970, 374, 16, mutedTextColor);
+             970, 420, 16, mutedTextColor);
     DrawText(autoMode ? TextFormat("Phase time  %.1f s", phaseTimer) :
-                        "Select a green phase", 970, 399, 18, textColor);
+                        "Select a green phase", 970, 445, 18, textColor);
 
-    DrawButton((Rectangle){ 970, 444, 270, 44 },
+    DrawButton((Rectangle){ 970, 478, 270, 44 },
                autoMode ? "Switch to manual" : "Switch to adaptive",
                autoMode);
 
-    DrawText(TextFormat("Traffic density  %i%%", density * 25), 970, 514, 18, textColor);
-    DrawButton((Rectangle){ 970, 544, 126, 40 }, "Less", false);
-    DrawButton((Rectangle){ 1114, 544, 126, 40 }, "More", false);
+    DrawText(TextFormat("Traffic density  %i%%", density * 25), 970, 546, 18, textColor);
+    DrawButton((Rectangle){ 970, 576, 126, 40 }, "Less", false);
+    DrawButton((Rectangle){ 1114, 576, 126, 40 }, "More", false);
 
-    DrawText("Adaptive mode balances queue lengths.", 970, 610, 14, mutedTextColor);
-    DrawText("Manual mode holds the selected phase.", 970, 632, 14, mutedTextColor);
-    DrawText("Simulation prototype - not connected", 970, 690, 14, mutedTextColor);
-    DrawText("to real traffic infrastructure.", 970, 710, 14, mutedTextColor);
+    DrawButton((Rectangle){ 970, 636, 126, 40 },
+               paused ? "Resume" : "Pause", paused);
+    DrawButton((Rectangle){ 1114, 636, 126, 40 }, "Reset", false);
+
+    DrawText("SPACE: pause/resume     R: reset", 970, 694, 14, mutedTextColor);
+    DrawText("A: adaptive/manual       1 / 2: phase", 970, 716, 14, mutedTextColor);
+    DrawText("Simulation only - not connected to", 970, 752, 14, mutedTextColor);
+    DrawText("real traffic infrastructure.", 970, 772, 14, mutedTextColor);
 
     if (paused) {
         DrawRectangle(0, 0, ROAD_AREA_WIDTH, 38, (Color){ 20, 27, 34, 220 });
@@ -308,6 +341,8 @@ int main(void)
     int phase = 0;
     int density = 2;
     float phaseTimer = 0.0f;
+    float elapsedTime = 0.0f;
+    int completedVehicles = 0;
 
     while (!WindowShouldClose()) {
         float deltaTime = GetFrameTime();
@@ -315,6 +350,10 @@ int main(void)
 
         if (IsKeyPressed(KEY_SPACE)) paused = !paused;
         if (IsKeyPressed(KEY_A)) autoMode = !autoMode;
+        if (IsKeyPressed(KEY_R)) {
+            ResetSimulation(vehicles, spawnTimers, &elapsedTime,
+                            &completedVehicles, &phase, &phaseTimer);
+        }
         if (IsKeyPressed(KEY_ONE) && !autoMode) {
             phase = 0;
             phaseTimer = 0.0f;
@@ -326,11 +365,11 @@ int main(void)
 
         if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
             Vector2 mouse = GetMousePosition();
-            if (CheckCollisionPointRec(mouse, (Rectangle){ 970, 544, 126, 40 }) && density > 1) {
+            if (CheckCollisionPointRec(mouse, (Rectangle){ 970, 576, 126, 40 }) && density > 1) {
                 density--;
-            } else if (CheckCollisionPointRec(mouse, (Rectangle){ 1114, 544, 126, 40 }) && density < 4) {
+            } else if (CheckCollisionPointRec(mouse, (Rectangle){ 1114, 576, 126, 40 }) && density < 4) {
                 density++;
-            } else if (CheckCollisionPointRec(mouse, (Rectangle){ 970, 444, 270, 44 })) {
+            } else if (CheckCollisionPointRec(mouse, (Rectangle){ 970, 478, 270, 44 })) {
                 autoMode = !autoMode;
             } else if (!autoMode &&
                        CheckCollisionPointRec(mouse, (Rectangle){ 970, 188, 128, 28 })) {
@@ -340,11 +379,17 @@ int main(void)
                        CheckCollisionPointRec(mouse, (Rectangle){ 1100, 188, 130, 28 })) {
                 phase = 1;
                 phaseTimer = 0.0f;
+            } else if (CheckCollisionPointRec(mouse, (Rectangle){ 970, 636, 126, 40 })) {
+                paused = !paused;
+            } else if (CheckCollisionPointRec(mouse, (Rectangle){ 1114, 636, 126, 40 })) {
+                ResetSimulation(vehicles, spawnTimers, &elapsedTime,
+                                &completedVehicles, &phase, &phaseTimer);
             }
         }
 
         if (!paused) {
             phaseTimer += deltaTime;
+            elapsedTime += deltaTime;
 
             if (autoMode) {
                 int activeQueue = phase == 0
@@ -370,7 +415,7 @@ int main(void)
                         (float)GetRandomValue(75, 125) / 100.0f;
                 }
             }
-            UpdateVehicles(vehicles, deltaTime, phase);
+            completedVehicles += UpdateVehicles(vehicles, deltaTime, phase);
         }
 
         BeginDrawing();
@@ -378,7 +423,8 @@ int main(void)
         DrawRoad();
         DrawVehicles(vehicles);
         DrawSignal(phase);
-        DrawPanel(vehicles, autoMode, paused, phase, phaseTimer, density);
+        DrawPanel(vehicles, autoMode, paused, phase, phaseTimer, density,
+                  elapsedTime, completedVehicles);
         EndDrawing();
     }
 
